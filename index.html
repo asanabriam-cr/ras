@@ -820,7 +820,7 @@ function downloadAllZip() {
     const url = URL.createObjectURL(content);
     const a   = document.createElement('a');
     a.href = url;
-    a.download = `archivos-slug-${todayStr()}.zip`;
+    a.download = `${todayStr()}-archivo.zip`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('✓ ZIP descargado');

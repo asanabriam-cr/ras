@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Renombrador de Archivos a Formato Slug</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    /* ── Variables ─────────────────────────────────────── */
+    :root {
+      --blue:    #1A73E8;
+      --blue-dk: #1558b0;
+      --red:     #D93025;
+      --white:   #FFFFFF;
+      --surface: #F8F9FA;
+      --border:  #E8EAED;
+      --text:    #202124;
+      --muted:   #5F6368;
+      --success: #1E8E3E;
+      --warn:    #E37400;
+      --shadow:  0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+      --radius:  8px;
+    }
+
+    /* ── Reset / Base ──────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 15px;
+      color: var(--text);
+      background: var(--surface);
+      min-height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────── */
+    .app-header {
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      height: 56px;
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .app-header svg { flex-shrink: 0; margin-right: 12px; }
+    .app-header h1 { font-size: 18px; font-weight: 500; color: var(--text); }
+
+    /* ── Tabs ──────────────────────────────────────────── */
+    .tabs-nav {
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      padding: 0 20px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 14px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+      min-height: 44px;
+      transition: color .15s, border-color .15s;
+    }
+    .tab-btn:hover { color: var(--blue); }
+    .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Main layout ───────────────────────────────────── */
+    .container { max-width: 860px; margin: 0 auto; padding: 20px; }
+
+    /* ── Card ──────────────────────────────────────────── */
+    .card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    /* ── Form controls ─────────────────────────────────── */
+    label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+      min-height: 44px;
+    }
+    input[type="checkbox"] {
+      width: 18px; height: 18px;
+      accent-color: var(--blue);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-family: "Menlo", "Consolas", monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: vertical;
+      color: var(--text);
+      background: var(--white);
+      transition: border-color .15s, box-shadow .15s;
+      min-height: 44px;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(26,115,232,.15);
+    }
+    textarea[readonly] {
+      background: var(--surface);
+      color: var(--success);
+      cursor: default;
+    }
+
+    /* ── Buttons ───────────────────────────────────────── */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    button {
+      height: 44px;
+      padding: 0 20px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: background .15s, box-shadow .15s, opacity .15s;
+    }
+    button:active { opacity: .85; }
+    .btn-primary { background: var(--blue); color: var(--white); }
+    .btn-primary:hover { background: var(--blue-dk); box-shadow: var(--shadow); }
+    .btn-secondary {
+      background: var(--white);
+      color: var(--blue);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--surface); }
+    .btn-danger { background: var(--white); color: var(--red); border: 1px solid var(--border); }
+    .btn-danger:hover { background: #fce8e6; }
+    button:disabled { opacity: .45; cursor: default; pointer-events: none; }
+
+    /* ── Slug converter layout ─────────────────────────── */
+    .slug-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .slug-grid .col-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    @media (max-width: 600px) {
+      .slug-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Batch results table ───────────────────────────── */
+    .result-table-wrap {
+      overflow-x: auto;
+      margin-top: 16px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      background: var(--surface);
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr { border-bottom: 1px solid var(--border); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody td {
+      padding: 10px 14px;
+      vertical-align: top;
+      word-break: break-all;
+    }
+    tbody td:first-child { color: var(--muted); }
+    tbody td:last-child  { color: var(--success); font-weight: 500; }
+
+    /* Mobile: tarjetas ---------------------------------- */
+    @media (max-width: 767px) {
+      table thead { display: none; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      tbody tr {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      tbody td { padding: 2px 0; }
+      tbody td::before {
+        content: attr(data-label) ": ";
+        font-weight: 600;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+    }
+
+    /* ── Empty state ───────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 32px 20px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .empty-state svg { display: block; margin: 0 auto 12px; opacity: .4; }
+
+    /* ── Chip / badge ──────────────────────────────────── */
+    .chip {
+      display: inline-block;
+      background: #e8f0fe;
+      color: var(--blue);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* ── Toast ─────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #323232;
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      z-index: 999;
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
+      transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Stats bar (cantidad + peso total) ─────────────── */
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .stats-bar .stat-group { display: flex; gap: 22px; flex-wrap: wrap; }
+    .stats-bar .stat-item { text-align: left; }
+    .stats-bar .stat-number { font-size: 20px; font-weight: 600; color: var(--blue); line-height: 1.2; }
+    .stats-bar .stat-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--muted);
+    }
+
+    /* ── Drop zone ─────────────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 36px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: var(--white);
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--blue);
+      background: #f0f6ff;
+    }
+    .drop-zone svg { display: block; margin: 0 auto 10px; opacity: .5; }
+    .drop-zone p { font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+    .drop-zone span { font-size: 12px; color: var(--muted); }
+    .drop-zone .link-btn {
+      background: none; border: none; height: auto; padding: 0;
+      color: var(--blue); font-size: 14px; font-weight: 500;
+      cursor: pointer; text-decoration: underline;
+    }
+    #file-input { display: none; }
+
+    /* ── File list ─────────────────────────────────────── */
+    .file-list { list-style: none; margin-top: 16px; }
+    .file-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+      background: var(--white);
+      font-size: 13px;
+      flex-wrap: wrap;
+    }
+    .file-row .ext-chip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .file-row .original  { color: var(--muted); flex: 1; min-width: 120px; word-break: break-all; }
+    .file-row .arrow     { color: var(--border); flex-shrink: 0; }
+    .file-row .meta {
+      display: flex; flex-direction: column; gap: 2px; flex-shrink: 0;
+      min-width: 74px;
+    }
+    .file-row .file-size { font-size: 11px; color: var(--muted); }
+    .file-row .file-type {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .03em; background: #e8f0fe; color: var(--blue);
+      border-radius: 4px; padding: 1px 6px; display: inline-block; width: fit-content;
+    }
+    .file-row .slug-name {
+      color: var(--success); font-weight: 500; flex: 1.4; min-width: 150px;
+      border: 1px solid transparent; border-radius: 6px; padding: 4px 6px;
+      background: transparent; font-family: "Menlo", "Consolas", monospace; font-size: 12.5px;
+      transition: border-color .15s, background .15s;
+    }
+    .file-row .slug-name:hover { background: var(--surface); }
+    .file-row .slug-name:focus {
+      outline: none; border-color: var(--blue); background: var(--white);
+      box-shadow: 0 0 0 3px rgba(26,115,232,.15);
+    }
+    .file-row .slug-name.edited { border-color: var(--warn); }
+    .file-row .remove-btn {
+      background: none; border: none; height: 28px; width: 28px; padding: 0;
+      color: var(--muted); font-size: 18px; cursor: pointer; flex-shrink: 0;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      transition: background .15s, color .15s;
+    }
+    .file-row .remove-btn:hover { background: #fce8e6; color: var(--red); }
+    .file-row .dl-btn {
+      background: none; border: none; height: 28px; width: 28px; padding: 0;
+      color: var(--blue); font-size: 16px; cursor: pointer; flex-shrink: 0;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    .file-row .dl-btn:hover { background: #e8f0fe; }
+
+    @media (max-width: 767px) {
+      .file-row { flex-direction: column; align-items: stretch; }
+      .file-row .arrow { display: none; }
+      .file-row .slug-name { width: 100%; }
+      .file-row .meta { flex-direction: row; gap: 8px; align-items: center; }
+    }
+
+    /* ── Export box ─────────────────────────────────────── */
+    .export-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      font-family: "Menlo", "Consolas", monospace;
+      font-size: 12px;
+      color: var(--success);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 12px;
+    }
+
+    /* ── Footer ────────────────────────────────────────── */
+    footer {
+      background: var(--white);
+      border-top: 1px solid var(--border);
+      padding: 16px 20px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 20px;
+    }
+    footer strong { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────── -->
+<header class="app-header">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+    <path d="M3 7h18M3 12h18M3 17h12" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+  <h1>Renombrador de Archivos a Slug</h1>
+</header>
+
+<!-- ── Tabs nav ───────────────────────────────────────── -->
+<nav class="tabs-nav" role="tablist">
+  <button class="tab-btn active" role="tab" onclick="switchTab('files')" id="tab-files">Archivos <span class="chip" id="files-count">0</span></button>
+  <button class="tab-btn"        role="tab" onclick="switchTab('slug')"  id="tab-slug">Convertidor de Slug</button>
+</nav>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- PESTAÑA: Convertidor de Slug                        -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-slug">
+  <div class="container">
+
+    <!-- Opciones -->
+    <div class="card">
+      <p class="card-title">Opciones</p>
+      <label>
+        <input type="checkbox" id="chk-date" onchange="convertAll()">
+        Incluir fecha de hoy como prefijo <code style="font-size:12px;color:var(--muted)" id="today-preview"></code>
+      </label>
+    </div>
+
+    <!-- Entrada / Salida -->
+    <div class="card">
+      <p class="card-title">Conversión</p>
+      <div class="slug-grid">
+        <div>
+          <p class="col-label">Texto original</p>
+          <textarea id="slug-input" rows="10" placeholder="Pega aquí los nombres&#10;Una línea = un slug&#10;&#10;Ejemplo:&#10;Informe Anual 2024.pdf&#10;Acta Sesión #12&#10;Foto Graduación Escuela.JPG"
+            oninput="convertAll()"></textarea>
+        </div>
+        <div>
+          <p class="col-label">Resultado slug</p>
+          <textarea id="slug-output" rows="10" readonly placeholder="El resultado aparece aquí..."></textarea>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-primary" onclick="convertAll()">Convertir</button>
+        <button class="btn-secondary" onclick="copyResult()" id="btn-copy" disabled>Copiar resultado</button>
+        <button class="btn-danger" onclick="clearAll()">Limpiar</button>
+      </div>
+    </div>
+
+    <!-- Tabla de resultados -->
+    <div class="card" id="card-table" style="display:none">
+      <p class="card-title">Detalle de conversiones <span class="chip" id="count-badge">0</span></p>
+      <div class="result-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Original</th>
+              <th>Slug generado</th>
+            </tr>
+          </thead>
+          <tbody id="result-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- PESTAÑA: Archivos                                   -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="tab-panel active" id="panel-files">
+  <div class="container">
+
+    <!-- Opciones -->
+    <div class="card">
+      <p class="card-title">Opciones</p>
+      <label>
+        <input type="checkbox" id="fchk-date" onchange="reprocessFiles()">
+        Incluir fecha de hoy como prefijo <code style="font-size:12px;color:var(--muted)" id="ftoday-preview"></code>
+      </label>
+    </div>
+
+    <!-- Drop zone -->
+    <div class="card">
+      <p class="card-title">Subir archivos</p>
+      <div class="drop-zone" id="drop-zone"
+           onclick="document.getElementById('file-input').click()"
+           ondragover="dzOver(event)" ondragleave="dzLeave(event)" ondrop="dzDrop(event)">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+          <path d="M12 16V8m0 0-3 3m3-3 3 3" stroke="#1A73E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" stroke="#5F6368" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <p>Arrastrá los archivos aquí o <button class="link-btn" onclick="event.stopPropagation();document.getElementById('file-input').click()">seleccionálos desde tu dispositivo</button></p>
+        <span>Podés subir múltiples archivos a la vez</span>
+      </div>
+      <input type="file" id="file-input" multiple onchange="handleFileInput(this.files)">
+    </div>
+
+    <!-- Lista de archivos procesados -->
+    <div class="card" id="files-card" style="display:none">
+      <div class="stats-bar">
+        <div class="stat-group">
+          <div class="stat-item">
+            <div class="stat-number" id="files-total-count">0</div>
+            <div class="stat-label">Archivos</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-number" id="files-total-size">0 B</div>
+            <div class="stat-label">Peso total</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+        <p class="card-title" style="margin:0">
+          Archivos cargados <span class="chip" id="files-card-count">0</span>
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-primary"   onclick="downloadAllZip()">📦 Descargar todos (.zip)</button>
+          <button class="btn-secondary" onclick="copyFileResults()">Copiar slugs</button>
+          <button class="btn-secondary" onclick="exportFilesCsv()">Exportar CSV</button>
+          <button class="btn-danger"    onclick="clearFiles()">Limpiar todo</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px;">Podés editar manualmente cualquier nombre slug antes de descargar — tocá el campo verde y escribí el que prefieras.</p>
+      <ul class="file-list" id="file-list"></ul>
+
+      <!-- Preview exportación -->
+      <div id="files-export-wrap" style="display:none">
+        <p class="card-title" style="margin-top:16px">Vista previa — nombres para renombrar</p>
+        <div class="export-box" id="files-export-box"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Toast ───────────────────────────────────────────── -->
+<div id="toast"></div>
+
+<!-- ── Footer ─────────────────────────────────────────── -->
+<footer>
+  <strong>Renombrador de Archivos a Slug</strong> &nbsp;|&nbsp;
+  v3 combinada &nbsp;|&nbsp;
+  Desarrollado por Andry Sanabria Mata &nbsp;&middot;&nbsp; Asistente de Desarrollo: Claude AI &nbsp;|&nbsp;
+  &copy; Todos los derechos reservados
+</footer>
+
+<script>
+// ── Utilidades ─────────────────────────────────────────
+function toSlug(text, datePrefix) {
+  // Normalizar: minúsculas, quitar tildes
+  let r = text.toLowerCase();
+  r = r.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // Separar nombre y extensión si existe
+  const dotIdx = r.lastIndexOf('.');
+  let name = r, ext = '';
+  if (dotIdx > 0 && dotIdx < r.length - 1) {
+    name = r.slice(0, dotIdx);
+    ext  = '.' + r.slice(dotIdx + 1).replace(/[^a-z0-9]/g, '');
+  }
+  // Limpiar nombre (guiones bajos → guiones antes de normalizar)
+  name = name.replace(/_/g, '-')
+             .replace(/[^a-z0-9\-]/g, '-')
+             .replace(/-+/g, '-')
+             .replace(/^-+|-+$/g, '');
+  if (datePrefix && name) name = datePrefix + '-' + name;
+  return name + ext;
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ── Estado ─────────────────────────────────────────────
+let lastResults = []; // [{original, slug}]
+
+// ── UI helpers ─────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── Conversión ─────────────────────────────────────────
+function convertAll() {
+  const raw   = document.getElementById('slug-input').value;
+  const useDate = document.getElementById('chk-date').checked;
+  const prefix  = useDate ? todayStr() : '';
+
+  document.getElementById('today-preview').textContent =
+    useDate ? '(' + prefix + '-nombre.ext)' : '';
+
+  const lines   = raw.split('\n');
+  const results = [];
+
+  lines.forEach(line => {
+    const stripped = line.trim();
+    if (!stripped) { results.push({ original: '', slug: '' }); return; }
+    results.push({ original: stripped, slug: toSlug(stripped, prefix) });
+  });
+
+  lastResults = results.filter(r => r.original);
+
+  // Salida de texto
+  document.getElementById('slug-output').value =
+    results.map(r => r.slug).join('\n');
+
+  // Botones
+  const hasContent = lastResults.length > 0;
+  document.getElementById('btn-copy').disabled = !hasContent;
+  document.getElementById('btn-save').disabled = !hasContent;
+
+  // Tabla de detalle
+  renderTable(lastResults);
+}
+
+function renderTable(rows) {
+  const tbody = document.getElementById('result-tbody');
+  const card  = document.getElementById('card-table');
+
+  if (!rows.length) { card.style.display = 'none'; return; }
+
+  card.style.display = '';
+  document.getElementById('count-badge').textContent = rows.length;
+
+  tbody.innerHTML = rows.map((r, i) => `
+    <tr>
+      <td data-label="#">${i + 1}</td>
+      <td data-label="Original">${escHtml(r.original)}</td>
+      <td data-label="Slug">${escHtml(r.slug)}</td>
+    </tr>`).join('');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function copyResult() {
+  const out = document.getElementById('slug-output').value.trim();
+  if (!out) return;
+  navigator.clipboard.writeText(out)
+    .then(() => showToast('✓ Resultado copiado al portapapeles'))
+    .catch(() => {
+      // Fallback para entornos sin clipboard API (archivo local)
+      const ta = document.createElement('textarea');
+      ta.value = out; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('✓ Resultado copiado al portapapeles');
+    });
+}
+
+function clearAll() {
+  document.getElementById('slug-input').value  = '';
+  document.getElementById('slug-output').value = '';
+  document.getElementById('card-table').style.display = 'none';
+  document.getElementById('btn-copy').disabled = true;
+  document.getElementById('btn-save').disabled = true;
+  lastResults = [];
+}
+
+// ── Archivos ───────────────────────────────────────────
+let uploadedFiles = []; // [{id, original, slug, ext}]
+
+function dzOver(e)  { e.preventDefault(); document.getElementById('drop-zone').classList.add('drag-over'); }
+function dzLeave(e) { document.getElementById('drop-zone').classList.remove('drag-over'); }
+function dzDrop(e)  {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  handleFileInput(e.dataTransfer.files);
+}
+
+function handleFileInput(fileList) {
+  const useDate = document.getElementById('fchk-date').checked;
+  const prefix  = useDate ? todayStr() : '';
+
+  Array.from(fileList).forEach(file => {
+    const name = file.name;
+    const slug = toSlug(name, prefix);
+    // Evitar duplicados exactos
+    if (!uploadedFiles.find(f => f.original === name)) {
+      uploadedFiles.push({
+        id: Date.now() + Math.random(),
+        original: name,
+        slug,
+        ext: extOf(name),
+        size: file.size,
+        type: getFileType(name),
+        edited: false,
+        fileObj: file
+      });
+    }
+  });
+
+  // reset el input para permitir re-subir los mismos archivos
+  document.getElementById('file-input').value = '';
+  renderFileList();
+}
+
+function extOf(name) {
+  const i = name.lastIndexOf('.');
+  return (i > 0 && i < name.length - 1) ? name.slice(i + 1).toUpperCase() : '—';
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B';
+  const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function getFileType(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  const types = {
+    jpg: 'Imagen', jpeg: 'Imagen', png: 'Imagen', gif: 'Imagen', webp: 'Imagen', svg: 'Imagen',
+    pdf: 'PDF', doc: 'Documento', docx: 'Documento', odt: 'Documento', txt: 'Texto',
+    mp4: 'Video', avi: 'Video', mov: 'Video', wmv: 'Video', mkv: 'Video',
+    mp3: 'Audio', wav: 'Audio', flac: 'Audio', ogg: 'Audio',
+    zip: 'Archivo', rar: 'Archivo', '7z': 'Archivo',
+    xls: 'Hoja de cálculo', xlsx: 'Hoja de cálculo', csv: 'Hoja de cálculo'
+  };
+  return types[ext] || 'Archivo';
+}
+
+function reprocessFiles() {
+  const useDate = document.getElementById('fchk-date').checked;
+  const prefix  = useDate ? todayStr() : '';
+  document.getElementById('ftoday-preview').textContent =
+    useDate ? '(' + prefix + '-nombre.ext)' : '';
+  uploadedFiles = uploadedFiles.map(f => f.edited ? f : { ...f, slug: toSlug(f.original, prefix) });
+  renderFileList();
+}
+
+function updateSlugName(id, value) {
+  const f = uploadedFiles.find(x => x.id === id);
+  if (!f) return;
+  f.slug = value.trim();
+  f.edited = true;
+  const lines = uploadedFiles.map(x => `${x.original}  →  ${x.slug}`).join('\n');
+  document.getElementById('files-export-box').textContent = lines;
+}
+
+function removeFile(id) {
+  uploadedFiles = uploadedFiles.filter(f => f.id !== id);
+  renderFileList();
+}
+
+function downloadOne(id) {
+  const f = uploadedFiles.find(x => x.id === id);
+  if (!f || !f.fileObj) return;
+  const url = URL.createObjectURL(f.fileObj);
+  const a   = document.createElement('a');
+  a.href = url;
+  a.download = f.slug;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadAllZip() {
+  const files = uploadedFiles.filter(f => f.fileObj);
+  if (!files.length) return;
+
+  if (typeof JSZip === 'undefined') {
+    showToast('✗ No se pudo cargar JSZip, revisá tu conexión');
+    return;
+  }
+
+  showToast(`Comprimiendo ${files.length} archivo${files.length > 1 ? 's' : ''}…`);
+  const zip = new JSZip();
+  const usedNames = new Set();
+
+  files.forEach(f => {
+    let name = f.slug || f.original;
+    // Evitar colisiones dentro del zip si dos slugs coinciden
+    let finalName = name, n = 1;
+    while (usedNames.has(finalName)) {
+      const dot = name.lastIndexOf('.');
+      finalName = dot > 0 ? `${name.slice(0, dot)}-${n}${name.slice(dot)}` : `${name}-${n}`;
+      n++;
+    }
+    usedNames.add(finalName);
+    zip.file(finalName, f.fileObj);
+  });
+
+  zip.generateAsync({ type: 'blob' }).then(content => {
+    const url = URL.createObjectURL(content);
+    const a   = document.createElement('a');
+    a.href = url;
+    a.download = `archivos-slug-${todayStr()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('✓ ZIP descargado');
+  }).catch(err => {
+    showToast('✗ Error al crear el ZIP: ' + err.message);
+  });
+}
+
+function renderFileList() {
+  const card  = document.getElementById('files-card');
+  const list  = document.getElementById('file-list');
+  const count = uploadedFiles.length;
+
+  document.getElementById('files-count').textContent = count;
+  document.getElementById('files-card-count').textContent = count;
+
+  if (!count) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const totalBytes = uploadedFiles.reduce((sum, f) => sum + (f.size || 0), 0);
+  document.getElementById('files-total-count').textContent = count;
+  document.getElementById('files-total-size').textContent = formatFileSize(totalBytes);
+
+  list.innerHTML = uploadedFiles.map(f => `
+    <li class="file-row">
+      <span class="ext-chip">${escHtml(f.ext)}</span>
+      <span class="original">${escHtml(f.original)}</span>
+      <span class="arrow">→</span>
+      <input class="slug-name${f.edited ? ' edited' : ''}" value="${escHtml(f.slug)}"
+             oninput="updateSlugName(${f.id}, this.value)" spellcheck="false" />
+      <span class="meta">
+        <span class="file-type">${escHtml(f.type || '')}</span>
+        <span class="file-size">${formatFileSize(f.size)}</span>
+      </span>
+      <button class="dl-btn" title="Descargar con nombre slug" onclick="downloadOne(${f.id})">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M12 4v12m0 0-4-4m4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="remove-btn" title="Quitar" onclick="removeFile(${f.id})">×</button>
+    </li>`).join('');
+
+  // Export preview
+  const lines = uploadedFiles.map(f => `${f.original}  →  ${f.slug}`).join('\n');
+  document.getElementById('files-export-box').textContent = lines;
+  document.getElementById('files-export-wrap').style.display = '';
+}
+
+function copyFileResults() {
+  if (!uploadedFiles.length) return;
+  const text = uploadedFiles.map(f => f.slug).join('\n');
+  navigator.clipboard.writeText(text)
+    .catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+    })
+    .finally(() => showToast('✓ Slugs copiados al portapapeles'));
+}
+
+function exportFilesCsv() {
+  if (!uploadedFiles.length) return;
+  const rows = ['"Nombre original","Nombre slug"',
+    ...uploadedFiles.map(f => `"${f.original.replace(/"/g,'""')}","${f.slug.replace(/"/g,'""')}"`)
+  ];
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = 'slugs-' + todayStr() + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✓ CSV descargado');
+}
+
+function clearFiles() {
+  if (!uploadedFiles.length) return;
+  if (!confirm('¿Estás seguro de que querés eliminar todos los archivos?')) return;
+  uploadedFiles = [];
+  document.getElementById('files-count').textContent = '0';
+  document.getElementById('files-total-count').textContent = '0';
+  document.getElementById('files-total-size').textContent = '0 B';
+  document.getElementById('files-card').style.display = 'none';
+}
+
+// ── Init ───────────────────────────────────────────────
+(function init() {
+  document.getElementById('today-preview').textContent = '';
+})();
+</script>
+</body>
+</html>
